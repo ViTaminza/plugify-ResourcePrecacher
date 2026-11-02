@@ -1,8 +1,15 @@
 # ResourcePrecacher
 
-Reads `configs/ResourcePrecacher/resource_precacher.ini` (`Models`) and
-`configs/ResourcePrecacher/precacher.ini` (`Precacher`) once at plugin start.
-Each root value is a resource path; empty values and nested blocks are ignored.
+Version 1.1.0 — rewritten onto pure `s2sdk` (PLUGIN_STANDARD §7): no `pisexcompat`, no guard
+library. The Valve KeyValues reader and the config path resolution are part of the plugin
+(`src/precache_core.hpp`), and `s2sdk` is the only dependency left in the manifest (the optional
+`hudmenu` entry and its `__hudmenu_*` export are gone).
+
+Reads `resource_precacher.ini` (`Models`) and `precacher.ini` (`Precacher`) once at plugin start.
+Each file is looked up as `<configs>/<file>` first and as `<configs>/ResourcePrecacher/<file>`
+second, where `<configs>` is `plg::GetConfigsDir()`; the second spelling is the layout `package.sh`
+installs and PLUGIN_STANDARD §3 mandates. Each root value is a resource path; empty values and
+nested blocks are ignored.
 
 Resources must be submitted through `s2sdk::Precache` from an
 `OnBuildGameSessionManifest` listener **on every map load**. In s2sdk 2.18.2,
@@ -11,9 +18,10 @@ Resources must be submitted through `s2sdk::Precache` from an
 engine manifest. Registering only at plugin start loses the list on the automatic
 map reload after workshop mounting, and on subsequent map changes.
 
-Version 1.0.1 keeps the configured paths in the plugin and restores the list from
-the manifest listener. Unloading removes the listener. Loading the plugin into
-an already running map takes effect on the next map load.
+The plugin keeps the configured paths in its own list and restores it from the manifest listener.
+There is no timer, no map listener and no `OnPluginUpdate`: the only `s2sdk` calls are the
+register/unregister pair and `Precache()` inside the callback. Unloading removes the listener.
+Loading the plugin into an already running map takes effect on the next map load.
 
 This fixes the built-in Nuke fence
 `models/props/de_nuke/hr_nuke/chainlink_fence_001/chainlink_fence_001_256_capped.vmdl`
@@ -28,11 +36,9 @@ docker run --rm -v "$PWD":/src -w /src \
   --entrypoint /src/build/tests/resource_precacher_tests plugify-builder:1
 ```
 
-The tests link the real plugin and model s2sdk's map-end reset followed by manifest
-construction. They cover both config files, repeated map loads, a failing resource,
-unload/reload, and a missing listener teardown binding. The regression produced
-eight failures before the fix; all 29 checks pass after it.
-
-In game, ResourcePrecacher 1.0.1 registers all seven configured entries at initial
-load, on addon reload, and after an explicit `changelevel de_dust2`; the fence's
-missing-manifest/loading errors no longer appear.
+The tests compile `src/plugin.cpp` in, so they run the plugin's own code: the KV1 grammar (quoted and
+unquoted tokens, `//` and `/* */` comments, escapes, nested blocks, a `#base` line, a UTF-8 BOM) and
+the rejection of malformed input, the two real config files, both config lookups, and the whole
+lifecycle with stubbed `s2sdk` bindings — s2sdk's map-end reset followed by manifest construction,
+repeated map loads, a failing resource, unload/reload, a missing teardown binding, a missing configs
+directory and missing bindings. All 84 checks pass.
